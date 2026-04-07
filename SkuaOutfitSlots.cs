@@ -23,16 +23,16 @@ public class SkuaOutfitSlots
     public bool DontPreconfigure = true;
     public List<IOption> Options = new()
     {
-        new Option<string>("WeaponEquip", "Weapon (Equip)", "Item to actually equip in the weapon slot.", string.Empty),
-        new Option<string>("WeaponShow", "Weapon (Show)", "Vanity item to show in the weapon slot.", string.Empty),
-        new Option<string>("HelmEquip", "Helm (Equip)", "Item to actually equip in the helm slot.", string.Empty),
-        new Option<string>("HelmShow", "Helm (Show)", "Vanity item to show in the helm slot.", string.Empty),
-        new Option<string>("ArmorEquip", "Armor (Equip)", "Item to actually equip in the armor slot.", string.Empty),
-        new Option<string>("ArmorShow", "Armor (Show)", "Vanity item to show in the armor slot.", string.Empty),
-        new Option<string>("CapeEquip", "Cape (Equip)", "Item to actually equip in the cape slot.", string.Empty),
-        new Option<string>("CapeShow", "Cape (Show)", "Vanity item to show in the cape slot.", string.Empty),
-        new Option<string>("PetEquip", "Pet (Equip)", "Item to actually equip in the pet slot.", string.Empty),
-        new Option<string>("PetShow", "Pet (Show)", "Vanity item to show in the pet slot.", string.Empty),
+        new Option<string>("WeaponEquip", "Weapon - Equip", "Combat slot. Blank = unequip weapon.", string.Empty),
+        new Option<string>("HelmEquip", "Helm - Equip", "Combat slot. Blank = unequip helm.", string.Empty),
+        new Option<string>("ArmorEquip", "Armor - Equip", "Combat slot. Blank = unequip armor.", string.Empty),
+        new Option<string>("CapeEquip", "Cape - Equip", "Combat slot. Blank = unequip cape.", string.Empty),
+        new Option<string>("PetEquip", "Pet - Equip", "Combat slot. Blank = unequip pet.", string.Empty),
+        new Option<string>("WeaponShow", "Weapon - Show", "Vanity slot. Blank = hide vanity weapon.", string.Empty),
+        new Option<string>("HelmShow", "Helm - Show", "Vanity slot. Blank = hide vanity helm.", string.Empty),
+        new Option<string>("ArmorShow", "Armor - Show", "Vanity slot. Blank = hide vanity armor.", string.Empty),
+        new Option<string>("CapeShow", "Cape - Show", "Vanity slot. Blank = hide vanity cape.", string.Empty),
+        new Option<string>("PetShow", "Pet - Show", "Vanity slot. Blank = hide vanity pet.", string.Empty),
         CoreBots.Instance.SkipOptions,
     };
 
@@ -128,7 +128,10 @@ public class SkuaOutfitSlots
             CleanupSlotEquipState(slot, keepIds);
         }
         else
+        {
+            SendWearPacket(item);
             ApplyShowVisual(slot, item);
+        }
 
         Core.Logger($"Applied vanity {slot}: {item.Name}");
     }
@@ -295,6 +298,12 @@ public class SkuaOutfitSlots
             return;
 
         Core.SendPackets($"%xt%zm%unwearItem%{Bot.Map.RoomID}%{slotCode}%");
+        Core.Sleep(500);
+    }
+
+    private void SendWearPacket(InventoryItem item)
+    {
+        Core.SendPackets($"%xt%zm%wearItem%{Bot.Map.RoomID}%{item.ID}%");
         Core.Sleep(500);
     }
 
