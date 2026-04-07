@@ -1,0 +1,1 @@
+taskkill /IM skua.exe /F
