@@ -74,7 +74,10 @@ public class BankUnequippedInventory
             }
 
             if (banked)
+            {
                 moved++;
+                Core.Logger($"Banked: {item.Name}");
+            }
             else
                 Core.Logger($"Failed to bank: {item.Name}");
         }

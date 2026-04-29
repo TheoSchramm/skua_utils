@@ -10,6 +10,7 @@ tags: outfit, equip, vanity, wear, show
 using System;
 using System.Collections.Generic;
 using System.Dynamic;
+using System.Linq;
 using Skua.Core.Interfaces;
 using Skua.Core.Models.Items;
 using Skua.Core.Options;
@@ -84,17 +85,20 @@ public class SkuaOutfitSlots
             return;
         }
 
-        if (!Core.CheckInventory(itemName))
+        InventoryItem item = EnsureItemInInventory(itemName);
+        if (item == null)
         {
             Core.Logger($"Equip skipped: \"{itemName}\" not found in inventory or bank.");
             return;
         }
 
-        Core.Equip(itemName);
+        if (IsCorrectItemAlreadyEquipped(slot, item.Name))
+            return;
 
-        InventoryItem equippedItem = GetInventoryItem(itemName);
-        if (equippedItem != null)
-            CleanupSlotEquipState(slot, new HashSet<int> { equippedItem.ID });
+        Core.Equip(item.Name);
+
+        if (Bot.Inventory.IsEquipped(item.ID))
+            CleanupSlotEquipState(slot, new HashSet<int> { item.ID });
     }
 
     private void ApplyShowOrClear(OutfitSlot slot, string itemName, string equipItemName)
@@ -105,15 +109,18 @@ public class SkuaOutfitSlots
             return;
         }
 
-        InventoryItem item = GetInventoryItem(itemName);
+        InventoryItem item = EnsureItemInInventory(itemName);
         if (item == null)
         {
             Core.Logger($"Show skipped: \"{itemName}\" could not be loaded into inventory.");
             return;
         }
 
+        if (IsCorrectItemAlreadyWorn(slot, item.Name))
+            return;
+
         HashSet<int> keepIds = new();
-        InventoryItem equipItem = GetInventoryItem(equipItemName);
+        InventoryItem equipItem = EnsureItemInInventory(equipItemName);
         if (equipItem != null && Bot.Inventory.IsEquipped(equipItem.ID))
             keepIds.Add(equipItem.ID);
 
@@ -165,6 +172,21 @@ public class SkuaOutfitSlots
         return equippedItems;
     }
 
+    private List<InventoryItem> GetWornSlotItems(OutfitSlot slot)
+    {
+        List<InventoryItem> wornItems = new();
+        foreach (InventoryItem item in Bot.Inventory.Items)
+        {
+            if (item == null || !item.Wearing)
+                continue;
+
+            if (MatchesSlot(item, slot))
+                wornItems.Add(item);
+        }
+
+        return wornItems;
+    }
+
     private void CleanupSlotEquipState(OutfitSlot slot, HashSet<int> keepItemIds)
     {
         foreach (InventoryItem equippedItem in GetEquippedSlotItems(slot))
@@ -175,6 +197,25 @@ public class SkuaOutfitSlots
             ToggleItemEquip(equippedItem, false);
             Core.Logger($"Removed extra equipped {slot}: {equippedItem.Name}");
         }
+    }
+
+    private bool IsCorrectItemAlreadyEquipped(OutfitSlot slot, string itemName)
+    {
+        return GetEquippedSlotItems(slot).Any(item =>
+            item.Name.Equals(itemName, StringComparison.OrdinalIgnoreCase)
+        );
+    }
+
+    private bool IsCorrectItemAlreadyWorn(OutfitSlot slot, string itemName)
+    {
+        return GetWornSlotItems(slot).Any(item =>
+            item.Name.Equals(itemName, StringComparison.OrdinalIgnoreCase)
+        );
+    }
+
+    private bool HasVanityOverride(OutfitSlot slot)
+    {
+        return GetWornSlotItems(slot).Count > 0;
     }
 
     private bool MatchesSlot(InventoryItem item, OutfitSlot slot)
@@ -208,15 +249,91 @@ public class SkuaOutfitSlots
         }
     }
 
-    private InventoryItem GetInventoryItem(string itemName)
+    private InventoryItem EnsureItemInInventory(string itemName)
     {
-        if (!Core.CheckInventory(itemName))
+        if (string.IsNullOrWhiteSpace(itemName))
             return null;
 
-        if (!Bot.Inventory.TryGetItem(itemName, out InventoryItem item))
+        string resolvedItemName = ResolveOwnedItemName(itemName);
+        if (string.IsNullOrWhiteSpace(resolvedItemName))
             return null;
 
-        return item;
+        if (Bot.Inventory.TryGetItem(resolvedItemName, out InventoryItem inventoryItem))
+            return inventoryItem;
+
+        InventoryItem bankItem = GetBankItemByName(resolvedItemName);
+        if (bankItem == null)
+            return null;
+
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            TryMoveItemFromBankToInventory(bankItem);
+            Core.Sleep(500);
+
+            if (Bot.Inventory.TryGetItem(resolvedItemName, out inventoryItem))
+                return inventoryItem;
+        }
+
+        if (!Bot.Inventory.TryGetItem(resolvedItemName, out inventoryItem))
+            return null;
+
+        return inventoryItem;
+    }
+
+    private string ResolveOwnedItemName(string itemName)
+    {
+        string trimmedName = itemName.Trim();
+
+        InventoryItem inventoryItem = Bot.Inventory.Items.FirstOrDefault(item =>
+            item != null && item.Name.Equals(trimmedName, StringComparison.OrdinalIgnoreCase)
+        );
+        if (inventoryItem != null)
+            return inventoryItem.Name;
+
+        InventoryItem bankItem = GetBankItemByName(trimmedName);
+        if (bankItem != null)
+            return bankItem.Name;
+
+        if (Core.CheckInventory(trimmedName, toInv: false))
+            return trimmedName;
+
+        return string.Empty;
+    }
+
+    private InventoryItem GetBankItemByName(string itemName)
+    {
+        return Bot.Bank.Items.FirstOrDefault(item =>
+            item != null && item.Name.Equals(itemName, StringComparison.OrdinalIgnoreCase)
+        );
+    }
+
+    private void TryMoveItemFromBankToInventory(InventoryItem bankItem)
+    {
+        try
+        {
+            Core.Unbank(bankItem.Name);
+        }
+        catch
+        {
+        }
+
+        if (Bot.Inventory.Contains(bankItem.ID) || Bot.Inventory.Contains(bankItem.Name))
+            return;
+
+        try
+        {
+            Bot.Bank.ToInventory(bankItem.ID);
+        }
+        catch
+        {
+            try
+            {
+                Bot.Bank.ToInventory(bankItem.Name);
+            }
+            catch
+            {
+            }
+        }
     }
 
     private void ToggleItemEquip(InventoryItem item, bool shouldEquip)
@@ -245,9 +362,12 @@ public class SkuaOutfitSlots
 
     private void ClearShowSlot(OutfitSlot slot, string equipItemName)
     {
+        if (!HasVanityOverride(slot))
+            return;
+
         SendUnwearPacket(slot);
 
-        InventoryItem equipItem = GetInventoryItem(equipItemName);
+        InventoryItem equipItem = EnsureItemInInventory(equipItemName);
 
         if (equipItem != null)
             ApplyShowVisual(slot, equipItem);
